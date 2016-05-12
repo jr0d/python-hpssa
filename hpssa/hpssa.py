@@ -23,12 +23,9 @@ THERE BE DRAGONS HERE
 """
 
 import logging
-import os
-import re
-import time
 
-from mercury.common.helpers.cli import run, find_in_path
-from mercury.common.helpers.size import Size
+from _cli import run, find_in_path
+from size import Size
 
 LOG = logging.getLogger(__name__)
 

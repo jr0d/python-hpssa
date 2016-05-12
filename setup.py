@@ -17,7 +17,7 @@ from setuptools import setup
 
 setup(
     name='python-hpssa',
-    version='0.0.2',
+    version='0.0.3',
     packages=['hpssa'],
     url='',
     license='Apache-2.0',
@@ -25,5 +25,6 @@ setup(
     author_email='jared@blacknode.net',
     description='Python module for working with HP Smart Array controllers',
     install_requires=[
+        'python-size'
     ]
 )
