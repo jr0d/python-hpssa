@@ -1,2 +1,4 @@
 # python-hpssa
-Python class for working with HP Smart Array controllers
+Python module for working with HP Smart Array controllers
+
+*Not for production use*
