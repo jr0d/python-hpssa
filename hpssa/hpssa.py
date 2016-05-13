@@ -57,7 +57,7 @@ def parse_adapter_details(raw_data):
             continue
 
         if l[:3] != detail_indent:  # ascii space
-            LOG.debug('Parsing arry line: %s' % l)
+            LOG.debug('Parsing array line: %s' % l)
             name, slot = l.split('in Slot')
             array_details = {'name': name.strip()}
             _adapters.append(array_details)
@@ -79,7 +79,7 @@ def __parse_array_line(line):
     array_info = {
         'letter': line.split()[1],
         'type': line.split()[3].strip('(,'),
-        'free_space': Size(line.split(':')[1].strip().strip(')'))
+        'free_space': Size(line.split(':')[1].strip().strip(')')).bytes
     }
 
     return array_info
@@ -97,7 +97,7 @@ def __parse_ld_line(line):
 
     ld_info = {
         'id': int(line.split()[1]),
-        'size': Size(size),
+        'size': Size(size).bytes,
         'level': raid_level,
         'status': status
     }
@@ -115,7 +115,7 @@ def __parse_pd_line(line):
         'box': box,
         'bay': bay,
         'type': disk_type,
-        'size': Size(size),
+        'size': Size(size).bytes,
         'status': status
     }
 
@@ -198,9 +198,40 @@ def parse_drive_info(pd_info):
 
         if line.find(details_indent) == 0:
             label, data = line.split(':', 1)
-            pd_details[__scrub_label(label)] = data.strip()
+            scrubbed_label = __scrub_label(label)
+            if scrubbed_label == 'size':
+                pd_details[scrubbed_label] = Size(data.strip()).bytes
+            else:
+                pd_details[scrubbed_label] = data.strip()
 
     return pd_details
+
+
+class Adapter(dict):
+    def __init__(self, *args, **kwargs):
+        super(Adapter, self).__init__(*args, **kwargs)
+
+    @property
+    def total_drives(self):
+        return len(self['drives'])
+
+    @property
+    def total_size(self):
+        _bytes = 0
+        for drive in self['drives']:
+            _bytes += drive['size']
+        return _bytes
+
+    @property
+    def unassigned_total(self):
+        return len(self['configuration']['unassigned'])
+
+    @property
+    def unassigned_size(self):
+        _bytes = 0
+        for drive in self['configuration']['unassigned']:
+            _bytes += drive['_size'].bytes
+        return _bytes
 
 
 class HPSSA(object):
@@ -230,7 +261,7 @@ class HPSSA(object):
             _config = self._get_raw_config(adapter['slot'])
             adapter['drives'], adapter['configuration'] = parse_show_config(_config)
 
-        return adapters
+        return [Adapter(**a) for a in adapters]
 
     def refresh(self):
         self.adapters = self._raw_system_info()
@@ -295,7 +326,7 @@ class HPSSA(object):
         loc = sp[:2]
         r = sp[2]
 
-        for i in xrange(*[int(x) for x in r.split('-')]):
+        for i in range(*[int(x) for x in r.split('-')]):
             expanded.append('%s:%d' % (loc, i))
 
         return expanded
@@ -314,7 +345,7 @@ class HPSSA(object):
         items = s.split(',')
 
         drives = []
-        for idx in xrange(len(items)):
+        for idx in range(len(items)):
             if '-' in items[idx]:
                 drives += self._expand_range(items[idx])
                 continue
@@ -334,18 +365,21 @@ class HPSSA(object):
 
     def create(self, slot, selection, raid, array_letter=None, array_type='ld', size='max',
                stripe_size='default', write_policy='writeback',
-               secotors=32, caching=True, data_ld=None,
+               sectors=32, caching=True, data_ld=None,
                parity_init_method='default'):
         """
         Create an array
 
-        :param selction: all, allunassigned, Port:Box:Bay,...  , 1I:1:1-1I:1:6
+        :param parity_init_method:
+        :param array_letter:
+        :param slot:
+        :param selection: all, allunassigned, Port:Box:Bay,...  , 1I:1:1-1I:1:6
         :param raid: 0, 1, 5, 6, 1+0, 1+0asm, 50, 60
         :param array_type: ld, ldcache, arrayr0
         :param size: size in MB, min, max, maxmbr
         :param stripe_size: 2**3-10 (8-1024), default
         :param write_policy:
-        :param secotors: 32, 64
+        :param sectors: 32, 64
         :param caching: True | False
         :param data_ld: ld ID, required if array_type == ldcache
         :return:
@@ -367,7 +401,7 @@ class HPSSA(object):
         )
 
         standard_array_options = {
-            'sectors': secotors,
+            'sectors': sectors,
             'caching': caching and 'enable' or 'disable',
         }
 
