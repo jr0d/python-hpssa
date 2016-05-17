@@ -176,7 +176,8 @@ def parse_show_config(config):
                 continue
 
             if line.find('unassigned') == 3:
-                arrays.append(array_info)
+                if array_info:
+                    arrays.append(array_info)
                 array_info = None
                 unassigned_drives = True
                 continue
@@ -184,7 +185,8 @@ def parse_show_config(config):
     # If there are no unassigned drives, we need to append the last array
 
     if not unassigned_drives:
-        arrays.append(array_info)
+        if array_info:
+            arrays.append(array_info)
 
     return drives, configuration
 
@@ -234,6 +236,15 @@ class Adapter(dict):
         return _bytes
 
 
+def update_late(f):
+    def wrapped(self, *args, **kwargs):
+        result = f(self, *args, **kwargs)
+        LOG.debug('Updating adapter data')
+        self.refresh()
+        return result
+    return wrapped
+
+
 class HPSSA(object):
     details_command = 'ctrl all show detail'
     parity_levels = [5, 6, 50, 60]
@@ -242,8 +253,8 @@ class HPSSA(object):
         self.hpssacli_path = find_in_path(hpssa_path)
         self.adapters = self._raw_system_info()
 
-    def run(self, cmd):
-        return run('%s %s' % (self.hpssacli_path, cmd))
+    def run(self, cmd, ignore_error=False):
+        return run('%s %s' % (self.hpssacli_path, cmd), ignore_error=ignore_error)
 
     def _get_raw_config(self, slot):
         cmd = 'ctrl slot=%s show config' % slot
@@ -282,7 +293,8 @@ class HPSSA(object):
 
     def get_array_letters(self, slot):
         arrays = self.get_arrays(slot)
-        return [x['letter'] for x in arrays]
+        if arrays:
+            return [x['letter'] for x in arrays]
 
     def get_next_array_letter(self, slot):
         """
@@ -363,6 +375,7 @@ class HPSSA(object):
                 return False
         return True
 
+    @update_late
     def create(self, slot, selection, raid, array_letter=None, array_type='ld', size='max',
                stripe_size='default', write_policy='writeback',
                sectors=32, caching=True, data_ld=None,
@@ -449,6 +462,22 @@ class HPSSA(object):
         # return array_letter
         LOG.info(array_letter)
         return result
+
+    @update_late
+    def delete_logical_drive(self, slot, ld):
+        LOG.info('Deleting Slot: %s, ld : %s' % ld (slot, ld))
+        cmd = 'ctrl slot=%s ld=%s delete force' % (slot, ld)
+        return self.run(cmd)
+
+    @update_late
+    def delete_all_logical_drives(self, slot):
+        LOG.info('Deleting all logical drives on Slot %s' % slot)
+        cmd = 'ctrl slot=%s ld all delete forced' % slot
+        return self.run(cmd, ignore_error=True)
+
+    def clear_configuration(self):
+        for adapter in self.adapters:
+            self.delete_all_logical_drives(adapter['slot'])
 
     def get_pd_info(self, slot, pd):
         cmd = 'ctrl slot=%s pd %s show detail' % (slot, pd)
