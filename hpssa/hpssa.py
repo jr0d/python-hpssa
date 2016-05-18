@@ -465,8 +465,8 @@ class HPSSA(object):
 
     @update_late
     def delete_logical_drive(self, slot, ld):
-        LOG.info('Deleting Slot: %s, ld : %s' % ld (slot, ld))
-        cmd = 'ctrl slot=%s ld=%s delete force' % (slot, ld)
+        LOG.info('Deleting Slot: %s, ld : %s' % (slot, ld))
+        cmd = 'ctrl slot=%s ld %s delete forced' % (slot, ld)
         return self.run(cmd)
 
     @update_late
@@ -476,8 +476,11 @@ class HPSSA(object):
         return self.run(cmd, ignore_error=True)
 
     def clear_configuration(self):
+        results = dict()
         for adapter in self.adapters:
-            self.delete_all_logical_drives(adapter['slot'])
+            results[adapter['slot']] = (self.delete_all_logical_drives(adapter['slot']))
+
+        return results
 
     def get_pd_info(self, slot, pd):
         cmd = 'ctrl slot=%s pd %s show detail' % (slot, pd)
