@@ -108,15 +108,18 @@ def __parse_ld_line(line):
 def __parse_pd_line(line):
     line = line.strip()
     port, box, bay = line.split()[1].split(':')
-    disk_type, size, status = [x.strip()
-                               for x in line.split('(')[1].strip(')').split(',')[1:]]
+    attributes = [x.strip() \
+                    for x in line.split('(')[1].strip(')').split(',')[1:]]
+    disk_type, size, status = attributes[0], attributes[1], attributes[2]
+    spare = 'spare' in attributes[3:]
     pd_info = {
         'port': port,
         'box': box,
         'bay': bay,
         'type': disk_type,
         'size': Size(size).bytes,
-        'status': status
+        'status': status,
+        'spare': spare
     }
 
     return pd_info
