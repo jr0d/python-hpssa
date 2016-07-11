@@ -24,8 +24,8 @@ THERE BE DRAGONS HERE
 
 import logging
 
-from _cli import run, find_in_path
-from size import Size
+from ._cli import run, find_in_path
+from size.size import Size
 
 LOG = logging.getLogger(__name__)
 
@@ -402,7 +402,7 @@ class HPSSA(object):
             array_letter = self.get_next_array_letter(slot)
 
         command = 'ctrl slot={slot} create type={type} drives={drives} ' \
-                  'raid={raid} size={size} stripesize={stripe_size}'.format(
+                  'raid={raid} size={size} stripesize={stripe_size} forced'.format(
             **{
                 'slot': slot,
                 'type': array_type,
