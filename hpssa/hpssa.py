@@ -328,6 +328,43 @@ class HPSSA(object):
             if drive_id == _id:
                 return drive
 
+    def get_firmware_version(self, slot):
+        """
+        Returns the first firmware version from the adapters list
+        """
+        adapter = self.get_slot_details(slot)
+        return adapter.get('firmware_version')
+
+    def get_drive_configuration(self):
+        """
+        Iterate through the adapters and grab all the drive configurations
+        """
+        drive_list = []
+        for adapter in self.adapters:
+            if ('slot' not in adapter or
+                    'configuration' not in adapter or
+                    'drives' not in adapter['configuration']):
+                continue
+            config = adapter['configuration']
+            drive_list.append({'slot': adapter['slot'],
+                               'drives': config['drives'],
+                               'arrays': config.get('arrays', []),
+                               'unassigned': config.get('unassigned', [])})
+        return drive_list
+
+    def get_all_drives(self):
+        """
+        Return a list of flat structure drives that includes the adapter
+        slot and drive identifier
+        """
+        all_drives = []
+        for drive_config in self.get_drive_configuration():
+            for drive in drive_config['drives']:
+                all_drives.append(dict(slot=adapter['slot'],
+                                       drive_id=self.assemble_id(drive),
+                                       **drive))
+        return all_drives
+
     @staticmethod
     def _expand_range(_id_range):
         """
