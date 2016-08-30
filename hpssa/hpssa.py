@@ -341,13 +341,11 @@ class HPSSA(object):
         """
         drive_list = []
         for adapter in self.adapters:
-            if ('slot' not in adapter or
-                    'configuration' not in adapter or
-                    'drives' not in adapter['configuration']):
+            if ('slot' not in adapter or 'configuration' not in adapter):
                 continue
             config = adapter['configuration']
             drive_list.append({'slot': adapter['slot'],
-                               'drives': config['drives'],
+                               'drives': adapter['drives'],
                                'arrays': config.get('arrays', []),
                                'unassigned': config.get('unassigned', [])})
         return drive_list
