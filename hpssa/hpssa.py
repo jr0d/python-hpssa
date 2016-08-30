@@ -358,7 +358,7 @@ class HPSSA(object):
         all_drives = []
         for drive_config in self.get_drive_configuration():
             for drive in drive_config['drives']:
-                all_drives.append(dict(slot=adapter['slot'],
+                all_drives.append(dict(slot=drive['slot'],
                                        drive_id=self.assemble_id(drive),
                                        **drive))
         return all_drives
