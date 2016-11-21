@@ -87,9 +87,9 @@ def __parse_array_line(line):
 
 def __parse_ld_line(line):
     line = line.strip()
-    size, raid_type, status = [x.strip()
-                               for x in line.split('(')[1].strip(')').split(',')]
-    raid_level = raid_type.split()[1]
+    attributes = [x.strip()
+                  for x in line.split('(')[1].strip(')').split(',')]
+    raid_level = attributes[1].split()[1]
     if raid_level == '1+0':
         raid_level = 10
     else:
@@ -97,9 +97,9 @@ def __parse_ld_line(line):
 
     ld_info = {
         'id': int(line.split()[1]),
-        'size': Size(size).bytes,
+        'size': Size(attributes[0]).bytes,
         'level': raid_level,
-        'status': status
+        'status': attributes[2]
     }
 
     return ld_info
@@ -108,8 +108,8 @@ def __parse_ld_line(line):
 def __parse_pd_line(line):
     line = line.strip()
     port, box, bay = line.split()[1].split(':')
-    attributes = [x.strip() \
-                    for x in line.split('(')[1].strip(')').split(',')[1:]]
+    attributes = [x.strip()
+                  for x in line.split('(')[1].strip(')').split(',')[1:]]
     disk_type, size, status = attributes[0], attributes[1], attributes[2]
     spare = 'spare' in attributes[3:]
     pd_info = {
