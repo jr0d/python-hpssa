@@ -95,11 +95,16 @@ def __parse_ld_line(line):
     else:
         raid_level = int(raid_level)
 
+    progress = None
+    if len(attributes) > 3 and '%' in attributes[3]:
+        progress = float(attributes[3].split('%')[0].strip()) / 100
+
     ld_info = {
         'id': int(line.split()[1]),
         'size': Size(attributes[0]).bytes,
         'level': raid_level,
-        'status': attributes[2]
+        'status': attributes[2],
+        'progress': progress
     }
 
     return ld_info
