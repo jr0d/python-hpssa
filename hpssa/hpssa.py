@@ -130,6 +130,18 @@ def __parse_pd_line(line):
     return pd_info
 
 
+def _update_spare_list(array_info, spare_list, pd):
+    for spare in spare_list:
+        if spare['port'] == pd['port'] and \
+                spare['box'] == pd['box'] and \
+                spare['bay'] == pd['bay']:
+            spare['arrays'].append(array_info['letter'])
+            return
+    _s = pd.copy()
+    _s.update({'arrays': [array_info['letter']]})
+    spare_list.append(_s)
+
+
 def parse_show_config(config):
     _drive_indent = ' ' * 6
     _array_indent = ' ' * 3
@@ -138,8 +150,9 @@ def parse_show_config(config):
     arrays = []
     unassigned_drives = False
     unassigned = []
+    spares = []
     drives = []
-    configuration = {'arrays': arrays, 'unassigned': unassigned}
+    configuration = {'arrays': arrays, 'unassigned': unassigned, 'spares': spares}
 
     for line in config.splitlines():
         if line[:6] == _drive_indent:
@@ -158,9 +171,12 @@ def parse_show_config(config):
 
             if array_info:
                 if pd_info:
-                    array_info['physical_drives'].append(
-                        pd_info
-                    )
+                    if pd_info.pop('spare'):
+                        _update_spare_list(array_info, spares, pd_info)
+                    else:
+                        array_info['physical_drives'].append(
+                            pd_info
+                        )
 
                 elif ld_info:
                     array_info['logical_drives'].append(
@@ -250,6 +266,7 @@ def update_late(f):
         LOG.debug('Updating adapter data')
         self.refresh()
         return result
+
     return wrapped
 
 
@@ -333,6 +350,15 @@ class HPSSA(object):
             if drive_id == _id:
                 return drive
 
+    def get_drive_index(self, slot, drive_id):
+        adapter = self.get_slot_details(slot)
+        drives = adapter['drives']
+        for idx in range(len(drives)):
+            _id = '%s:%s:%s' % (drives[idx]['port'], drives[idx]['box'], drives[idx]['bay'])
+            if drive_id == _id:
+                return idx
+        return -1
+
     def get_firmware_version(self, slot):
         """
         Returns the first firmware version from the adapters list
@@ -346,7 +372,7 @@ class HPSSA(object):
         """
         drive_list = []
         for adapter in self.adapters:
-            if ('slot' not in adapter or 'configuration' not in adapter):
+            if 'slot' not in adapter or 'configuration' not in adapter:
                 continue
             config = adapter['configuration']
             drive_list.append({'slot': adapter['slot'],
@@ -368,23 +394,21 @@ class HPSSA(object):
                                        **drive))
         return all_drives
 
-    @staticmethod
-    def _expand_range(_id_range):
+    def expand_id_range(self, slot, _id_range):
         """
-        Ditch this, we should sort drives by port:box:bay and then select drives by
-        enum index
+
+        :param slot:
         :param _id_range:
         :return:
         """
-        expanded = []
-        sp = _id_range.split(':')
-        loc = sp[:2]
-        r = sp[2]
+        range_low, range_high = _id_range.split('-')
+        start_idx = self.get_drive_index(slot, range_low)
+        end_idx = self.get_drive_index(slot, range_high)
 
-        for i in range(*[int(x) for x in r.split('-')]):
-            expanded.append('%s:%d' % (loc, i))
+        if not (start_idx or end_idx):
+            raise HPRaidException('Range is not valid')
 
-        return expanded
+        return self.get_slot_details(slot)['drives'][start_idx:end_idx+1]
 
     def get_drives_from_selection(self, slot, s):
         adapter = self.get_slot_details(slot)
@@ -402,7 +426,7 @@ class HPSSA(object):
         drives = []
         for idx in range(len(items)):
             if '-' in items[idx]:
-                drives += self._expand_range(items[idx])
+                drives += self.expand_id_range(slot, items[idx])
                 continue
             drives.append(self.get_drive(slot, items[idx]))
 
@@ -453,8 +477,7 @@ class HPSSA(object):
                 'raid': raid,
                 'size': size,
                 'stripe_size': stripe_size
-            }
-        )
+            })
 
         standard_array_options = {
             'sectors': sectors,
@@ -500,6 +523,7 @@ class HPSSA(object):
             # 1+0 and 1+0asm will hit here
             pass
 
+        LOG.debug('Running command: {}'.format(command))
         result = self.run(command)
 
         # return array_letter
@@ -517,6 +541,14 @@ class HPSSA(object):
         LOG.info('Deleting all logical drives on Slot %s' % slot)
         cmd = 'ctrl slot=%s ld all delete forced' % slot
         return self.run(cmd, ignore_error=True)
+
+    @update_late
+    def add_spare(self, slot, array_letter, selection):
+        LOG.info('Adding spare - slot: {}, array: {}, disks: {}'.format(
+            slot, array_letter, selection))
+
+        cmd = 'ctrl slot={} array {} add spares={}'.format(slot, array_letter, selection)
+        return self.run(cmd)
 
     def clear_configuration(self):
         results = dict()
