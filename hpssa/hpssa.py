@@ -12,20 +12,22 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-
+#
 # https://kallesplayground.wordpress.com/useful-stuff/hp-smart-array-cli-commands-under-esxi/ < This!
-
-"""
-Parsing (scraping) this output is dangerous and calls into this class should
-be treated with extreme prejudice.
-
-THERE BE DRAGONS HERE
-"""
+# https://community.hpe.com/hpeb/attachments/hpeb/itrc-264/148204/3/HP%20Smart%20Storage%20Administrator%20User%20Guide.pdf
+#
+# Parsing (scraping) this output is dangerous and calls into this class should
+# be treated with extreme prejudice.
+#
+# THERE BE DRAGONS HERE
+#
+# TODO: Use ld show detail and pd all show detail to get more information about lds and pds
+# TODO: Make this a complete replacement for all hpssacli functions
 
 import logging
 
 from ._cli import run, find_in_path
-from size.size import Size
+from size.size import Size, SizeObjectValError
 
 LOG = logging.getLogger(__name__)
 
@@ -116,13 +118,21 @@ def __parse_pd_line(line):
     attributes = [x.strip()
                   for x in line.split('(')[1].strip(')').split(',')[1:]]
     disk_type, size, status = attributes[0], attributes[1], attributes[2]
+
+    # Failed drives will sometimes report size using the string '???'
+    try:
+        size = Size(size).bytes
+    except SizeObjectValError:
+        size = None  # setting to none so that arithmetic operations will break
+        # if this is not accounted for
+
     spare = 'spare' in attributes[3:]
     pd_info = {
         'port': port,
         'box': box,
         'bay': bay,
         'type': disk_type,
-        'size': Size(size).bytes,
+        'size': size,
         'status': status,
         'spare': spare
     }
@@ -276,7 +286,8 @@ class HPSSA(object):
 
     def __init__(self, hpssa_path='hpssacli'):
         self.hpssacli_path = find_in_path(hpssa_path)
-        self.adapters = self._raw_system_info()
+        self.adapters = []
+        self.refresh()
 
     def run(self, cmd, ignore_error=False):
         return run('%s %s' % (self.hpssacli_path, cmd), ignore_error=ignore_error)
