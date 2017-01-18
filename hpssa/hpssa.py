@@ -23,6 +23,8 @@
 #
 # TODO: Use ld show detail and pd all show detail to get more information about lds and pds
 # TODO: Make this a complete replacement for all hpssacli functions
+# TODO: relate active spares to failed drive index
+#    ex: physicaldrive 1I:1:7 (port 1I:box 1:bay 7, SAS, 300 GB, OK, active spare for 1I:1:6)
 
 import logging
 
