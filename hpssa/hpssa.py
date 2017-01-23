@@ -145,8 +145,8 @@ def __parse_pd_line(line):
 def _update_spare_list(array_info, spare_list, pd):
     for spare in spare_list:
         if spare['port'] == pd['port'] and \
-                spare['box'] == pd['box'] and \
-                spare['bay'] == pd['bay']:
+                        spare['box'] == pd['box'] and \
+                        spare['bay'] == pd['bay']:
             spare['arrays'].append(array_info['letter'])
             return
     _s = pd.copy()
@@ -320,6 +320,7 @@ class HPSSA(object):
             # TODO: clean up adapter structure, so that ints are ints, OKs or bools, etc
             if slot == int(adapter['slot']):
                 return adapter
+        raise HPRaidException('There is no adapter at slot {}'.format(slot))
 
     def cache_ok(self, slot):
         adapter = self.get_slot_details(slot)
@@ -334,27 +335,12 @@ class HPSSA(object):
         if arrays:
             return [x['letter'] for x in arrays]
 
-    def get_next_array_letter(self, slot):
-        """
-        TODO: Do some research here to determine what happens when we encounter more
-        than 26 arrays
-        :return:
-        """
-        letters = self.get_array_letters(slot)
-        if not letters:
-            return 'A'
-
-        last_letter = letters[-1]
-        if 'letter' == 'Z':
-            # TODO: Find out an array after Z becomes AA, if not ... *gasp*
-            raise HPRaidException('Really dumb limitation encountered')
-        return chr(ord(last_letter) + 1)
-
     def get_array(self, slot, letter):
         arrays = self.get_arrays(slot)
         for array in arrays:
             if array['letter'] == letter:
                 return array
+        raise HPRaidException('Array {} does not exist on the adapter at slot {}'.format(letter, slot))
 
     def get_drive(self, slot, drive_id):
         adapter = self.get_slot_details(slot)
@@ -421,7 +407,7 @@ class HPSSA(object):
         if not (start_idx or end_idx):
             raise HPRaidException('Range is not valid')
 
-        return self.get_slot_details(slot)['drives'][start_idx:end_idx+1]
+        return self.get_slot_details(slot)['drives'][start_idx:end_idx + 1]
 
     def get_drives_from_selection(self, slot, s):
         adapter = self.get_slot_details(slot)
@@ -445,6 +431,10 @@ class HPSSA(object):
 
         return drives
 
+    def get_array_drives(self, slot, array):
+        array = self.get_array(slot, array)
+        return array['physical_drives']
+
     @staticmethod
     def is_ssd(drive):
         return 'Solid State' in drive['type'] or 'SSD' in drive['type']
@@ -456,12 +446,12 @@ class HPSSA(object):
         return True
 
     @update_late
-    def create(self, slot, selection, raid, array_letter=None, array_type='ld', size='max',
+    def create(self, slot, selection=None, raid=None, array_letter=None, array_type='ld', size='max',
                stripe_size='default', write_policy='writeback',
                sectors=32, caching=True, data_ld=None,
                parity_init_method='default'):
         """
-        Create an array
+        Create an array, logical drive, or logical_cache_drive
 
         :param parity_init_method:
         :param array_letter:
@@ -478,16 +468,17 @@ class HPSSA(object):
         :return:
         """
 
-        if not array_letter:
-            array_letter = self.get_next_array_letter(slot)
+        create_string = 'controller slot={} {}create'.format(
+            slot, array_letter and 'array {} '.format(array_letter) or '')
 
-        command = 'ctrl slot={slot} create type={type} drives={drives} ' \
-                  'raid={raid} size={size} stripesize={stripe_size} forced'.format(
+        command = '{create_string} type={type}{drives}' \
+                  '{raid} size={size} stripesize={stripe_size} forced'.format(
             **{
+                'create_string': create_string,
                 'slot': slot,
                 'type': array_type,
-                'drives': selection,
-                'raid': raid,
+                'drives': selection and ' drives={selection}' or '',
+                'raid': raid and ' raid={raid}' or '',
                 'size': size,
                 'stripe_size': stripe_size
             })
@@ -526,7 +517,12 @@ class HPSSA(object):
         else:
             raise HPRaidException('Type: %s is not supported' % array_type)
 
-        if self.all_ssd(self.get_drives_from_selection(slot, selection)):
+        if array_letter:
+            test_drives = self.get_array_drives(slot, array_letter)
+        else:
+            test_drives = self.get_drives_from_selection(slot, selection)
+
+        if self.all_ssd(test_drives):
             command += build_options(ssd_array_options)
 
         try:
@@ -539,8 +535,6 @@ class HPSSA(object):
         LOG.debug('Running command: {}'.format(command))
         result = self.run(command)
 
-        # return array_letter
-        LOG.info(array_letter)
         return result
 
     @update_late
