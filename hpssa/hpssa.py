@@ -292,7 +292,11 @@ class HPSSA(object):
         self.refresh()
 
     def run(self, cmd, ignore_error=False):
-        return run('%s %s' % (self.hpssacli_path, cmd), ignore_error=ignore_error)
+        result = run('%s %s' % (self.hpssacli_path, cmd), ignore_error=ignore_error)
+        if not ignore_error:
+            if result.returncode:
+                raise HPRaidException('Command returned: {}, Error: {}'.format(result.returncode, result))
+        return result
 
     def _get_raw_config(self, slot):
         cmd = 'ctrl slot=%s show config' % slot
@@ -477,8 +481,8 @@ class HPSSA(object):
                 'create_string': create_string,
                 'slot': slot,
                 'type': array_type,
-                'drives': selection and ' drives={selection}' or '',
-                'raid': raid and ' raid={raid}' or '',
+                'drives': selection and ' drives={}'.format(selection) or '',
+                'raid': raid and ' raid={}'.format(raid) or '',
                 'size': size,
                 'stripe_size': stripe_size
             })
@@ -532,6 +536,8 @@ class HPSSA(object):
             # 1+0 and 1+0asm will hit here
             pass
 
+        LOG.info('Creating LD - slot: {}, raid: {}, type: {} array: {}, selection: {}, size={}'.format(
+            slot, raid, array_type, array_letter, selection, size))
         LOG.debug('Running command: {}'.format(command))
         result = self.run(command)
 
@@ -550,7 +556,7 @@ class HPSSA(object):
         return self.run(cmd, ignore_error=True)
 
     @update_late
-    def add_spare(self, slot, array_letter, selection):
+    def add_spares(self, slot, array_letter, selection):
         LOG.info('Adding spare - slot: {}, array: {}, disks: {}'.format(
             slot, array_letter, selection))
 
