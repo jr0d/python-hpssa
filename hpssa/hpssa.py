@@ -1,4 +1,5 @@
-# Copyright 2015 Jared Rodriguez (jared at blacknode dot net)
+# Copyright 2015-2017 Jared Rodriguez (jared at blacknode dot net)
+# Copyright 2017 Hussam Dawood
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
@@ -56,9 +57,16 @@ def parse_adapter_details(raw_data):
     detail_indent = ' ' * 3
 
     array_details = None
+    reached_adapter_details = False
     for l in raw_data.splitlines():
         if not l:
             continue
+
+        if not reached_adapter_details:
+            if 'in Slot' in l:
+                reached_adapter_details = True
+            else:
+                continue
 
         if l[:3] != detail_indent:  # ascii space
             LOG.debug('Parsing array line: %s' % l)
