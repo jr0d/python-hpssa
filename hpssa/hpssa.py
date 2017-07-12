@@ -1,4 +1,5 @@
-# Copyright 2015 Jared Rodriguez (jared at blacknode dot net)
+# Copyright 2015-2017 Jared Rodriguez (jared at blacknode dot net)
+# Copyright 2017 Hussam Dawood
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
@@ -56,9 +57,16 @@ def parse_adapter_details(raw_data):
     detail_indent = ' ' * 3
 
     array_details = None
+    reached_adapter_details = False
     for l in raw_data.splitlines():
         if not l:
             continue
+
+        if not reached_adapter_details:
+            if 'in Slot' in l:
+                reached_adapter_details = True
+            else:
+                continue
 
         if l[:3] != detail_indent:  # ascii space
             LOG.debug('Parsing array line: %s' % l)
@@ -164,7 +172,9 @@ def parse_show_config(config):
     unassigned = []
     spares = []
     drives = []
-    configuration = {'arrays': arrays, 'unassigned': unassigned, 'spares': spares}
+    configuration = {
+        'arrays': arrays, 'unassigned': unassigned, 'spares': spares
+    }
 
     for line in config.splitlines():
         if line[:6] == _drive_indent:
@@ -172,14 +182,14 @@ def parse_show_config(config):
             ld_info = None
 
             # What are we looking at?
-
             if 'physicaldrive' in line:
                 pd_info = __parse_pd_line(line)
                 drives.append(pd_info)
             elif 'logicaldrive' in line:
                 ld_info = __parse_ld_line(line)
             else:
-                raise HPParserException('Found something other than an ld or pd at indent level 6')
+                raise HPParserException('Found something other than an ld or '
+                                        'pd at indent level 6')
 
             if array_info:
                 if pd_info:
@@ -292,10 +302,12 @@ class HPSSA(object):
         self.refresh()
 
     def run(self, cmd, ignore_error=False):
-        result = run('%s %s' % (self.hpssacli_path, cmd), ignore_error=ignore_error)
+        result = run('%s %s' % (self.hpssacli_path, cmd),
+                     ignore_error=ignore_error)
         if not ignore_error:
             if result.returncode:
-                raise HPRaidException('Command returned: {}, Error: {}'.format(result.returncode, result))
+                raise HPRaidException('Command returned: {}, Error: {}'.format(
+                    result.returncode, result))
         return result
 
     def _get_raw_config(self, slot):
@@ -312,7 +324,8 @@ class HPSSA(object):
 
         for adapter in adapters:
             _config = self._get_raw_config(adapter['slot'])
-            adapter['drives'], adapter['configuration'] = parse_show_config(_config)
+            adapter['drives'], adapter['configuration'] = \
+                parse_show_config(_config)
 
         return [Adapter(**a) for a in adapters]
 
@@ -344,7 +357,10 @@ class HPSSA(object):
         for array in arrays:
             if array['letter'] == letter:
                 return array
-        raise HPRaidException('Array {} does not exist on the adapter at slot {}'.format(letter, slot))
+        raise HPRaidException(
+            'Array {} does not exist on the adapter at slot {}'.format(
+                letter, slot)
+        )
 
     def get_drive(self, slot, drive_id):
         adapter = self.get_slot_details(slot)
@@ -357,7 +373,9 @@ class HPSSA(object):
         adapter = self.get_slot_details(slot)
         drives = adapter['drives']
         for idx in range(len(drives)):
-            _id = '%s:%s:%s' % (drives[idx]['port'], drives[idx]['box'], drives[idx]['bay'])
+            _id = '%s:%s:%s' % (drives[idx]['port'],
+                                drives[idx]['box'],
+                                drives[idx]['bay'])
             if drive_id == _id:
                 return idx
         return -1
@@ -450,10 +468,10 @@ class HPSSA(object):
         return True
 
     @update_late
-    def create(self, slot, selection=None, raid=None, array_letter=None, array_type='ld', size='max',
-               stripe_size='default', write_policy='writeback',
-               sectors=32, caching=True, data_ld=None,
-               parity_init_method='default'):
+    def create(self, slot, selection=None, raid=None, array_letter=None,
+               array_type='ld', size='max', stripe_size='default',
+               write_policy='writeback', sectors=32, caching=True,
+               data_ld=None, parity_init_method='default'):
         """
         Create an array, logical drive, or logical_cache_drive
 
@@ -505,7 +523,8 @@ class HPSSA(object):
             'parityinitializationmethod': parity_init_method
         }
 
-        build_options = lambda o: ' %s' % ' '.join(['%s=%s' % (x, o[x]) for x in o])
+        build_options = \
+            lambda o: ' %s' % ' '.join(['%s=%s' % (x, o[x]) for x in o])
 
         standard_array_types = ['ld', 'arrayr0']
 
@@ -536,8 +555,11 @@ class HPSSA(object):
             # 1+0 and 1+0asm will hit here
             pass
 
-        LOG.info('Creating LD - slot: {}, raid: {}, type: {} array: {}, selection: {}, size={}'.format(
-            slot, raid, array_type, array_letter, selection, size))
+        LOG.info(
+            'Creating LD - slot: {}, raid: {}, type: {} array: {}, '
+            'selection: {}, size={}'.format(
+                slot, raid, array_type, array_letter, selection, size)
+        )
         LOG.debug('Running command: {}'.format(command))
         result = self.run(command)
 
@@ -560,13 +582,16 @@ class HPSSA(object):
         LOG.info('Adding spare - slot: {}, array: {}, disks: {}'.format(
             slot, array_letter, selection))
 
-        cmd = 'ctrl slot={} array {} add spares={}'.format(slot, array_letter, selection)
+        cmd = 'ctrl slot={} array {} add spares={}'.format(slot,
+                                                           array_letter,
+                                                           selection)
         return self.run(cmd)
 
     def clear_configuration(self):
         results = dict()
         for adapter in self.adapters:
-            results[adapter['slot']] = (self.delete_all_logical_drives(adapter['slot']))
+            results[adapter['slot']] = \
+                (self.delete_all_logical_drives(adapter['slot']))
 
         return results
 
