@@ -70,7 +70,12 @@ def parse_adapter_details(raw_data):
 
         if l[:3] != detail_indent:  # ascii space
             LOG.debug('Parsing array line: %s' % l)
-            name, slot = l.split('in Slot')
+            try:
+                name, slot = l.split('in Slot')
+            except ValueError as err:
+                LOG.error('Array parsing error on line: {}'.format(l))
+                continue
+
             array_details = {'name': name.strip()}
             _adapters.append(array_details)
             continue
@@ -79,7 +84,12 @@ def parse_adapter_details(raw_data):
             if 'PCI Address' in l:
                 array_details['pci_address'] = __extract_pci_address(l)
                 continue
-            label, data = l.split(':', 1)
+            try:
+                label, data = l.split(':', 1)
+            except ValueError as err:
+                LOG.error('Label parsing error on line: {}'.format(l))
+                continue
+
             array_details[__scrub_label(label)] = data.strip()
 
     return _adapters
@@ -323,6 +333,10 @@ class HPSSA(object):
         adapters = parse_adapter_details(raw_details)
 
         for adapter in adapters:
+            if not all([k in adapter for k in
+                        ('slot', 'configuration', 'drives')]):
+                raise HPRaidException('Parsing adapters failed due to missing '
+                        'items. Please check the health of this system.')
             _config = self._get_raw_config(adapter['slot'])
             adapter['drives'], adapter['configuration'] = \
                 parse_show_config(_config)
