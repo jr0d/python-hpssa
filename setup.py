@@ -17,7 +17,7 @@ from setuptools import setup
 
 setup(
     name='python-hpssa',
-    version='0.0.8',
+    version='0.0.9',
     packages=['hpssa'],
     url='',
     license='Apache-2.0',

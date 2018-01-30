@@ -28,6 +28,7 @@
 #    ex: physicaldrive 1I:1:7 (port 1I:box 1:bay 7, SAS, 300 GB, OK, active spare for 1I:1:6)
 
 import logging
+import re
 
 from ._cli import run, find_in_path
 from size.size import Size, SizeObjectValError
@@ -52,13 +53,22 @@ def __scrub_label(label):
     return label.lower().replace(' ', '_')
 
 
+def __parse_array_name(line):
+    LOG.debug('Parsing array line: {}'.format(line))
+    matches = re.match('^(?P<name>.*) in Slot (?P<slot>\d+)', line)
+    LOG.debug('Found {} in slot {}'.format(matches.group('name'),
+                                           matches.group('slot')))
+    return {'name': matches.group('name'), 'slot': matches.group('slot')}
+
+
 def parse_adapter_details(raw_data):
     _adapters = []
     detail_indent = ' ' * 3
 
     array_details = None
-    reached_adapter_details = False
+    reached_adapter_details = False  # To help bypass `Controller:` messages
     for l in raw_data.splitlines():
+        LOG.debug("-- raw --: {}".format(l))
         if not l:
             continue
 
@@ -69,12 +79,17 @@ def parse_adapter_details(raw_data):
                 continue
 
         if l[:3] != detail_indent:  # ascii space
-            LOG.debug('Parsing array line: %s' % l)
-            name, slot = l.split('in Slot')
-            array_details = {'name': name.strip()}
-            _adapters.append(array_details)
+            if 'in Slot' in l:
+                array_details = __parse_array_name(l)
+                _adapters.append(array_details)
+            elif re.match('^([A-Z].+)', l):  # errors are repoted in all caps
+                try:
+                    array_details['error'] = l.split(':', 1)[0]
+                except IndexError:
+                    array_details['error'] = l
+                finally:
+                    reached_adapter_details = False
             continue
-
         else:
             if 'PCI Address' in l:
                 array_details['pci_address'] = __extract_pci_address(l)
@@ -177,6 +192,7 @@ def parse_show_config(config):
     }
 
     for line in config.splitlines():
+        LOG.debug('-- line --: {}'.format(line))
         if line[:6] == _drive_indent:
             pd_info = None
             ld_info = None
@@ -323,6 +339,12 @@ class HPSSA(object):
         adapters = parse_adapter_details(raw_details)
 
         for adapter in adapters:
+            if adapter.get('error'):
+                LOG.debug('Controller {} (slot {}) is in an error '
+                          'state: {}'.format(adapter['name'],
+                                             adapter['slot'],
+                                             adapter['error']))
+                continue
             _config = self._get_raw_config(adapter['slot'])
             adapter['drives'], adapter['configuration'] = \
                 parse_show_config(_config)
@@ -345,6 +367,12 @@ class HPSSA(object):
 
     def get_arrays(self, slot):
         adapter = self.get_slot_details(slot)
+        if adapter.get('error'):
+            LOG.debug('Controller {} (slot {}) is in an error '
+                      'state: {}'.format(adapter['name'],
+                                         adapter['slot'],
+                                         adapter['error']))
+            return []
         return adapter['configuration']['arrays']
 
     def get_array_letters(self, slot):
@@ -364,20 +392,26 @@ class HPSSA(object):
 
     def get_drive(self, slot, drive_id):
         adapter = self.get_slot_details(slot)
-        for drive in adapter['drives']:
+        for drive in adapter['drives'] or []:
             _id = '%s:%s:%s' % (drive['port'], drive['box'], drive['bay'])
             if drive_id == _id:
                 return drive
 
     def get_drive_index(self, slot, drive_id):
         adapter = self.get_slot_details(slot)
-        drives = adapter['drives']
-        for idx in range(len(drives)):
-            _id = '%s:%s:%s' % (drives[idx]['port'],
-                                drives[idx]['box'],
-                                drives[idx]['bay'])
-            if drive_id == _id:
-                return idx
+        if adapter.get('error'):
+            LOG.debug('Controller {} (slot {}) is in an error '
+                      'state: {}'.format(adapter['name'],
+                                         adapter['slot'],
+                                         adapter['error']))
+        else:
+            drives = adapter['drives']
+            for idx in range(len(drives)):
+                _id = '%s:%s:%s' % (drives[idx]['port'],
+                                    drives[idx]['box'],
+                                    drives[idx]['bay'])
+                if drive_id == _id:
+                    return idx
         return -1
 
     def get_firmware_version(self, slot):
@@ -429,7 +463,11 @@ class HPSSA(object):
         if not (start_idx or end_idx):
             raise HPRaidException('Range is not valid')
 
-        return self.get_slot_details(slot)['drives'][start_idx:end_idx + 1]
+        controller = self.get_slot_details(slot)
+        if 'drives' not in controller:
+            raise HPRaidException('No drives on controller {}'.format(slot))
+
+        return controller['drives'][start_idx:end_idx + 1]
 
     def get_drives_from_selection(self, slot, s):
         adapter = self.get_slot_details(slot)
@@ -437,10 +475,10 @@ class HPSSA(object):
             return []
 
         if s == 'all':
-            return adapter['drives']
+            return adapter.get('drives') or []
 
         if s == 'allunassigned':
-            return adapter['configuration']['unassigned']
+            return adapter.get('configuration', {}).get('unassigned') or []
 
         items = s.split(',')
 
@@ -489,6 +527,14 @@ class HPSSA(object):
         :param data_ld: ld ID, required if array_type == ldcache
         :return:
         """
+
+        adapter = self.get_slot_details(slot)
+        if adapter.get('error'):
+            LOG.debug('Controller {} (slot {}) is in an error '
+                      'state: {}'.format(adapter['name'],
+                                         adapter['slot'],
+                                         adapter['error']))
+            return
 
         create_string = 'controller slot={} {}create'.format(
             slot, array_letter and 'array {} '.format(array_letter) or '')
@@ -567,21 +613,44 @@ class HPSSA(object):
 
     @update_late
     def delete_logical_drive(self, slot, ld):
-        LOG.info('Deleting Slot: %s, ld : %s' % (slot, ld))
+        adapter = self.get_slot_details(slot)
+        if adapter.get('error'):
+            LOG.debug('Controller {} (slot {}) is in an error '
+                      'state: {}'.format(adapter['name'],
+                                         adapter['slot'],
+                                         adapter['error']))
+            return
+
+        LOG.info('Deleting slot: %s, ld : %s' % (slot, ld))
         cmd = 'ctrl slot=%s ld %s delete forced' % (slot, ld)
         return self.run(cmd)
 
     @update_late
     def delete_all_logical_drives(self, slot):
-        LOG.info('Deleting all logical drives on Slot %s' % slot)
+        adapter = self.get_slot_details(slot)
+        if adapter.get('error'):
+            LOG.debug('Controller {} (slot {}) is in an error '
+                      'state: {}'.format(adapter['name'],
+                                         adapter['slot'],
+                                         adapter['error']))
+            return
+
+        LOG.info('Deleting all logical drives on slot %s' % slot)
         cmd = 'ctrl slot=%s ld all delete forced' % slot
         return self.run(cmd, ignore_error=True)
 
     @update_late
     def add_spares(self, slot, array_letter, selection):
+        adapter = self.get_slot_details(slot)
+        if adapter.get('error'):
+            LOG.debug('Controller {} (slot {}) is in an error '
+                      'state: {}'.format(adapter['name'],
+                                         adapter['slot'],
+                                         adapter['error']))
+            return
+
         LOG.info('Adding spare - slot: {}, array: {}, disks: {}'.format(
             slot, array_letter, selection))
-
         cmd = 'ctrl slot={} array {} add spares={}'.format(slot,
                                                            array_letter,
                                                            selection)
@@ -590,6 +659,8 @@ class HPSSA(object):
     def clear_configuration(self):
         results = dict()
         for adapter in self.adapters:
+            if 'error' in adapter:
+                continue
             results[adapter['slot']] = \
                 (self.delete_all_logical_drives(adapter['slot']))
 
@@ -597,6 +668,13 @@ class HPSSA(object):
 
     def get_pd_info(self, slot, pd):
         cmd = 'ctrl slot=%s pd %s show detail' % (slot, pd)
+        adapter = self.get_slot_details(slot)
+        if adapter.get('error'):
+            LOG.debug('Controller {} (slot {}) is in an error '
+                      'state: {}'.format(adapter['name'],
+                                         adapter['slot'],
+                                         adapter['error']))
+            return {}
         return parse_drive_info(self.run(cmd))
 
     @staticmethod
@@ -605,5 +683,15 @@ class HPSSA(object):
 
     def get_pd_by_index(self, slot, idx):
         adapter = self.get_slot_details(slot)
+        if adapter.get('error'):
+            return ''
         pd_info = adapter['drives'][idx]
         return self.assemble_id(pd_info)
+
+
+if __name__ == '__main__':
+    import sys
+    logging.basicConfig()
+    LOG.setLevel(logging.DEBUG)
+    raw_data = open(sys.argv[1]).read()
+    print(parse_adapter_details(raw_data))
