@@ -58,7 +58,7 @@ def __parse_array_name(line):
     matches = re.match('^(?P<name>.*) in Slot (?P<slot>\d+)', line)
     LOG.debug('Found {} in slot {}'.format(matches.group('name'),
                                            matches.group('slot')))
-    return {'name': matches.group('name'), 'slot': matches.group('slot')}
+    return {'name': matches.group('name'), 'slot': int(matches.group('slot'))}
 
 
 def parse_adapter_details(raw_data):
@@ -357,7 +357,7 @@ class HPSSA(object):
     def get_slot_details(self, slot):
         for adapter in self.adapters:
             # TODO: clean up adapter structure, so that ints are ints, OKs or bools, etc
-            if slot == int(adapter['slot']):
+            if int(slot) == int(adapter['slot']):
                 return adapter
         raise HPRaidException('There is no adapter at slot {}'.format(slot))
 
