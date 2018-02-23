@@ -31,7 +31,7 @@ import logging
 import re
 
 from ._cli import run, find_in_path
-from size.size import Size, SizeObjectValError
+from size import Size, SizeObjectValError
 
 LOG = logging.getLogger(__name__)
 
@@ -640,7 +640,19 @@ class HPSSA(object):
         return self.run(cmd, ignore_error=True)
 
     @update_late
-    def add_spares(self, slot, array_letter, selection):
+    def add_spares(self, slot, selection, array_letters=None):
+        """
+
+        :param slot:
+        :param selection:
+        :param array_letters: None for a global hotspare, otherwise a list of
+        array letters that the spare should be dedicated or shared between
+        :return: a list of results
+        """
+
+        if not array_letters:
+            array_letters = ['all']
+
         adapter = self.get_slot_details(slot)
         if adapter.get('error'):
             LOG.debug('Controller {} (slot {}) is in an error '
@@ -649,12 +661,16 @@ class HPSSA(object):
                                          adapter['error']))
             return
 
-        LOG.info('Adding spare - slot: {}, array: {}, disks: {}'.format(
-            slot, array_letter, selection))
-        cmd = 'ctrl slot={} array {} add spares={}'.format(slot,
-                                                           array_letter,
-                                                           selection)
-        return self.run(cmd)
+        results = list()
+        for array_letter in array_letters:
+            LOG.info('Adding spare - slot: {}, array: {}, disks: {}'.format(
+                slot, array_letter, selection))
+            cmd = 'ctrl slot={} array {} add spares={}'.format(slot,
+                                                               array_letter,
+                                                               selection)
+            results.append(self.run(cmd))
+
+        return results
 
     def clear_configuration(self):
         results = dict()
