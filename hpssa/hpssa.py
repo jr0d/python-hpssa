@@ -704,6 +704,23 @@ class HPSSA(object):
         pd_info = adapter['drives'][idx]
         return self.assemble_id(pd_info)
 
+    def _set_hba_mode(self, slot, state):
+        LOG.info('Setting %s mode on controller in Slot %s',
+                 'HBA' if state == 'on' else 'RAID', slot)
+        cmd = 'ctrl slot={} modify hbamode={} forced'.format(slot, state)
+        result = self.run(cmd)
+        LOG.warning('Command sent. The device must be rebooted for this change '
+                    'to take effect')
+        return result
+
+    def enable_hba_mode(self, slot):
+        """ Sets the controller in HBA mode """
+        return self._set_hba_mode(slot, 'on')
+
+    def disable_hba_mode(self, slot):
+        """ Sets the controller in RAID (Managed) mode"""
+        return self._set_hba_mode(slot, 'off')
+
 
 if __name__ == '__main__':
     import sys
