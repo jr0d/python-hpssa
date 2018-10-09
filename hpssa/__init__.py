@@ -1,1 +1,1 @@
-from hpssa import *
+from .hpssa import *
