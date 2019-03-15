@@ -228,7 +228,7 @@ def parse_show_config(config):
                     )
 
         if line[:3] == _array_indent:
-            if line.find('array') == 3:
+            if line.lower().find('array') == 3:
                 if array_info:
                     arrays.append(array_info)
 
@@ -237,7 +237,7 @@ def parse_show_config(config):
                 array_info['logical_drives'] = []
                 continue
 
-            if line.find('unassigned') == 3:
+            if line.lower().find('unassigned') == 3:
                 if array_info:
                     arrays.append(array_info)
                 array_info = None
